@@ -1,0 +1,40 @@
+# 环境变量与密钥（勿提交）
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Java / Maven
+backend-java/target/
+*.class
+
+# 前端构建产物（按需构建）
+frontend/dist/
+frontend/dist-ssr/
+
+# 依赖目录（根目录若存在）
+node_modules/
+
+# 本地数据与模型权重（体积大，用 README 说明如何获取）
+backend-python/chroma_db/
+backend-python/reports/
+backend-python/models/weights/*.pt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 日志
+*.log
+logs/

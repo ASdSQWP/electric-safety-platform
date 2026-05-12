@@ -1,0 +1,119 @@
+version: "3.8"
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: es-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend-java
+      - backend-python
+    restart: unless-stopped
+    networks:
+      - es-network
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: es-postgres
+    environment:
+      POSTGRES_DB: esafety
+      POSTGRES_USER: esafety
+      POSTGRES_PASSWORD: esafety123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - es-network
+
+  redis:
+    image: redis/redis-stack:latest
+    container_name: es-redis
+    ports:
+      - "6379:6379"
+      - "8002:8001"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    networks:
+      - es-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: es-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+    networks:
+      - es-network
+
+  backend-java:
+    build: ./backend-java
+    container_name: es-backend-java
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/esafety
+      SPRING_DATASOURCE_USERNAME: esafety
+      SPRING_DATASOURCE_PASSWORD: esafety123
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      AI_SERVICE_URL: http://backend-python:8000
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: unless-stopped
+    networks:
+      - es-network
+
+  backend-python:
+    build: ./backend-python
+    container_name: es-backend-python
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://esafety:esafety123@postgres:5432/esafety
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: unless-stopped
+    networks:
+      - es-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+
+networks:
+  es-network:
+    driver: bridge

@@ -3,7 +3,7 @@
 import json
 from enum import Enum
 
-from fastapi import APIRouter, Body, File, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -65,6 +65,15 @@ class EnsembleResult(BaseModel):
 
 # ── 辅助 ──────────────────────────────────────────────────────────
 
+def _get_mgr():
+    from main import app
+
+    mgr = app.state.model_manager
+    if mgr is None:
+        raise HTTPException(status_code=503, detail="模型服务未就绪（GPU/PyTorch不可用）")
+    return mgr
+
+
 def _run_single(yolo, img, conf: float, iou: float) -> list[DetectionBox]:
     import numpy as np
 
@@ -95,13 +104,12 @@ async def detect(file: UploadFile = File(...), model: str = "yolov8n", conf: flo
     import time
 
     from PIL import Image
-    from main import app
-
+    mgr = _get_mgr()
     img = Image.open(file.file).convert("RGB")
     w, h = img.size
 
     t0 = time.time()
-    yolo = await app.state.model_manager.get_model(model)
+    yolo = await mgr.get_model(model)
     detections = _run_single(yolo, img, conf, iou) if yolo else []
 
     return InferenceResult(
@@ -120,16 +128,16 @@ async def compare_models(file: UploadFile = File(...), models: str = '["yolov8n"
     import time
 
     from PIL import Image
-    from main import app
 
     model_names = json.loads(models)
+    mgr = _get_mgr()
     img = Image.open(file.file).convert("RGB")
     w, h = img.size
 
     results = []
     for model_name in model_names:
         t0 = time.time()
-        yolo = await app.state.model_manager.get_model(model_name)
+        yolo = await mgr.get_model(model_name)
         detections = _run_single(yolo, img, conf, 0.45) if yolo else []
         results.append(
             InferenceResult(
@@ -151,9 +159,9 @@ async def ensemble_inference(file: UploadFile = File(...), req: EnsembleRequest 
     import time
 
     from PIL import Image
-    from main import app
     from services.inference_service import nms_fusion, voting_fusion, wbf_fusion
 
+    mgr = _get_mgr()
     img = Image.open(file.file).convert("RGB")
     w, h = img.size
     t0 = time.time()
@@ -162,7 +170,7 @@ async def ensemble_inference(file: UploadFile = File(...), req: EnsembleRequest 
     all_dets: list[list[dict]] = []
 
     for name in req.models:
-        yolo = await app.state.model_manager.get_model(name)
+        yolo = await mgr.get_model(name)
         dets = _run_single(yolo, img, req.conf_threshold, req.iou_threshold) if yolo else []
         per_model[name] = dets
         all_dets.append(_dets_to_dicts(dets))
@@ -191,27 +199,24 @@ async def ensemble_inference(file: UploadFile = File(...), req: EnsembleRequest 
 @router.get("/models", response_model=list[ModelCapability])
 async def list_models():
     """列出所有已加载模型及其能力"""
-    from main import app
-
-    caps = await app.state.model_manager.get_model_capabilities()
+    mgr = _get_mgr()
+    caps = await mgr.get_model_capabilities()
     return [ModelCapability(**c) for c in caps]
 
 
 @router.put("/models/load")
 async def load_model(name: str = Body(...), path: str = Body(...), model_type: str = Body("yolo")):
     """动态加载模型"""
-    from main import app
-
-    ok = await app.state.model_manager.load_model(name, path, model_type)
+    mgr = _get_mgr()
+    ok = await mgr.load_model(name, path, model_type)
     return {"status": "loaded" if ok else "failed", "model": name}
 
 
 @router.delete("/models/{name}")
 async def unload_model(name: str):
     """卸载模型释放GPU内存"""
-    from main import app
-
-    ok = await app.state.model_manager.unload_model(name)
+    mgr = _get_mgr()
+    ok = await mgr.unload_model(name)
     return {"status": "unloaded" if ok else "not_found", "model": name}
 
 

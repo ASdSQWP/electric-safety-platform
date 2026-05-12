@@ -38,11 +38,14 @@ class TrainingJobResponse(BaseModel):
 async def start_training(req: TrainingJobRequest):
     import uuid
 
-    from tasks.train_task import start_training_task
-
     job_id = str(uuid.uuid4())[:8]
-    start_training_task.delay(job_id, req.model_dump())
-    return TrainingJobResponse(job_id=job_id, status="queued", message=f"训练任务 {job_id} 已加入队列")
+    try:
+        from tasks.train_task import start_training_task
+
+        start_training_task.delay(job_id, req.model_dump())
+        return TrainingJobResponse(job_id=job_id, status="queued", message=f"训练任务 {job_id} 已加入队列")
+    except Exception as e:
+        return TrainingJobResponse(job_id=job_id, status="failed", message=f"任务队列不可用（Redis/Celery未启动）: {e}")
 
 
 @router.get("/status/{job_id}")
@@ -87,15 +90,22 @@ class FineTuneStatusResponse(BaseModel):
 async def start_fine_tune(req: FineTuneRequest):
     import uuid
 
-    from tasks.train_task import fine_tune_task
-
     job_id = str(uuid.uuid4())[:8]
-    fine_tune_task.delay(job_id, req.model_dump())
-    return TrainingJobResponse(
-        job_id=job_id,
-        status="queued",
-        message=f"微调任务 {job_id} 已加入队列（策略: {req.strategy.value}）",
-    )
+    try:
+        from tasks.train_task import fine_tune_task
+
+        fine_tune_task.delay(job_id, req.model_dump())
+        return TrainingJobResponse(
+            job_id=job_id,
+            status="queued",
+            message=f"微调任务 {job_id} 已加入队列（策略: {req.strategy.value}）",
+        )
+    except Exception as e:
+        return TrainingJobResponse(
+            job_id=job_id,
+            status="failed",
+            message=f"任务队列不可用（Redis/Celery未启动）: {e}",
+        )
 
 
 @router.get("/fine-tune/{job_id}/status", response_model=FineTuneStatusResponse)

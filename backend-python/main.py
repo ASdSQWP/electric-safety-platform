@@ -11,14 +11,20 @@ from config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时加载模型
-    from models.model_manager import ModelManager
+    try:
+        from models.model_manager import ModelManager
 
-    app.state.model_manager = ModelManager()
-    await app.state.model_manager.load_defaults()
+        app.state.model_manager = ModelManager()
+        await app.state.model_manager.load_defaults()
+    except Exception as e:
+        print(f"[WARNING] Model loading skipped: {e}")
+        app.state.model_manager = None
     yield
-    # 关闭时释放资源
-    await app.state.model_manager.cleanup()
+    if app.state.model_manager:
+        try:
+            await app.state.model_manager.cleanup()
+        except Exception:
+            pass
 
 
 app = FastAPI(title="电力作业AI安全监管平台 - AI服务", version="1.0.0", lifespan=lifespan)

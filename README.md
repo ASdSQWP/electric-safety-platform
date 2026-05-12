@@ -1,1 +1,1 @@
-# 电力作业 AI 安全监管平台
+# electric-safety-platform
